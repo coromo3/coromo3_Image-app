@@ -180,6 +180,94 @@
     background: #a9adb6;
     cursor: not-allowed;
   }
+
+  button#getUrlBtn {
+    background: #fff;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 20px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button#getUrlBtn:hover { background: #f2f4f7; }
+  button#getUrlBtn:disabled {
+    color: var(--muted);
+    cursor: not-allowed;
+  }
+
+  #urlSection {
+    width: 100%;
+    max-width: 640px;
+    margin-top: 12px;
+  }
+  #urlKeyPanel {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  #urlKeyPanel.visible { display: flex; }
+  #urlKeyPanel a { color: #1f2430; }
+  #urlKeyPanel .keyRow {
+    display: flex;
+    gap: 8px;
+  }
+  #urlKeyPanel input[type="text"] {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+  #urlKeyPanel button {
+    background: #1f2430;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  #urlResult {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  #urlResult.visible { display: flex; }
+  #urlResultInput {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 9px 10px;
+    font-size: 13px;
+    color: var(--text);
+    background: #fff;
+  }
+  #urlCopyBtn {
+    background: #1f2430;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 9px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  #urlStatus {
+    margin-top: 6px;
+    font-size: 13px;
+  }
+  #urlStatus.error { color: #c0392b; }
+  #urlStatus.success { color: #1a7f4b; }
+  #urlStatus.pending { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -231,6 +319,25 @@
       <option value="jpeg">JPEG</option>
     </select>
     <button id="saveBtn">画像を保存</button>
+    <button id="getUrlBtn">画像URLを取得</button>
+  </div>
+
+  <div id="urlSection">
+    <div id="urlKeyPanel">
+      <span>
+        画像URL取得には ImgBB の無料APIキーが必要です。
+        <a href="https://api.imgbb.com/" target="_blank" rel="noopener">こちら</a>で取得してください。
+      </span>
+      <div class="keyRow">
+        <input type="text" id="urlKeyInput" placeholder="ImgBB APIキーを貼り付け">
+        <button id="urlKeySaveBtn">保存</button>
+      </div>
+    </div>
+    <div id="urlResult">
+      <input type="text" id="urlResultInput" readonly>
+      <button id="urlCopyBtn">コピー</button>
+    </div>
+    <div id="urlStatus"></div>
   </div>
 </div>
 
@@ -390,6 +497,15 @@
   const wmOpacityVal = document.getElementById("wmOpacityVal");
   const wmClearBtn = document.getElementById("wmClearBtn");
 
+  const getUrlBtn = document.getElementById("getUrlBtn");
+  const urlKeyPanel = document.getElementById("urlKeyPanel");
+  const urlKeyInput = document.getElementById("urlKeyInput");
+  const urlKeySaveBtn = document.getElementById("urlKeySaveBtn");
+  const urlResult = document.getElementById("urlResult");
+  const urlResultInput = document.getElementById("urlResultInput");
+  const urlCopyBtn = document.getElementById("urlCopyBtn");
+  const urlStatus = document.getElementById("urlStatus");
+
   /** @type {{id:string, url:string, img:HTMLImageElement, aspect:number}[]} */
   let images = [];
   /** @type {{url:string, img:HTMLImageElement, aspect:number}|null} */
@@ -486,11 +602,13 @@
     if (images.length === 0) {
       previewSection.classList.remove("visible");
       saveBtn.disabled = true;
+      getUrlBtn.disabled = true;
       return;
     }
 
     previewSection.classList.add("visible");
     saveBtn.disabled = false;
+    getUrlBtn.disabled = false;
     imageCountEl.textContent = images.length + " 枚の画像を読み込み済み";
 
     const aspects = images.map((item) => item.aspect);
@@ -531,6 +649,108 @@
       mime,
       format === "jpeg" ? 0.92 : undefined,
     );
+  }
+
+  /* --- 画像URL取得 (ImgBB) -------------------------------------------- */
+
+  const IMGBB_KEY_STORAGE = "cardCollage.imgbbApiKey";
+  const IMGBB_UPLOAD_URL = "https://api.imgbb.com/1/upload";
+
+  function getSavedApiKey() {
+    try {
+      return localStorage.getItem(IMGBB_KEY_STORAGE) || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function saveApiKey(key) {
+    try {
+      localStorage.setItem(IMGBB_KEY_STORAGE, key);
+    } catch (e) {
+      // localStorage unavailable (e.g. private mode) — key just won't persist
+      // across reloads; the in-memory value still works for this session.
+    }
+  }
+
+  function setUrlStatus(text, kind) {
+    urlStatus.textContent = text;
+    urlStatus.className = kind || "";
+  }
+
+  async function copyToClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (e) {
+        // fall through to the legacy fallback below
+      }
+    }
+    try {
+      urlResultInput.focus();
+      urlResultInput.select();
+      const ok = document.execCommand("copy");
+      return ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function uploadToImgbb(blob, apiKey) {
+    const fd = new FormData();
+    fd.append("key", apiKey);
+    fd.append("image", blob, "card-collage.png");
+    return fetch(IMGBB_UPLOAD_URL, { method: "POST", body: fd }).then(async (res) => {
+      let json;
+      try {
+        json = await res.json();
+      } catch (e) {
+        throw new Error("ImgBBからの応答を解析できませんでした。");
+      }
+      if (!res.ok || !json.success) {
+        const msg = (json && json.error && json.error.message) || ("HTTP " + res.status);
+        throw new Error("ImgBBへのアップロードに失敗しました: " + msg);
+      }
+      const url = json.data && (json.data.url || (json.data.image && json.data.image.url));
+      if (!url) throw new Error("ImgBBの応答に画像URLが含まれていませんでした。");
+      return url;
+    });
+  }
+
+  async function handleGetUrl() {
+    const apiKey = getSavedApiKey();
+    if (!apiKey) {
+      urlKeyPanel.classList.add("visible");
+      urlKeyInput.focus();
+      setUrlStatus("", "");
+      return;
+    }
+
+    getUrlBtn.disabled = true;
+    urlResult.classList.remove("visible");
+    setUrlStatus("アップロード中…", "pending");
+
+    try {
+      const format = formatSelect.value;
+      const mime = format === "png" ? "image/png" : "image/jpeg";
+      const blob = await new Promise((resolve) => {
+        canvas.toBlob(resolve, mime, format === "jpeg" ? 0.92 : undefined);
+      });
+      if (!blob) throw new Error("画像の生成に失敗しました。");
+
+      const url = await uploadToImgbb(blob, apiKey);
+
+      urlResultInput.value = url;
+      urlResult.classList.add("visible");
+      const copied = await copyToClipboard(url);
+      setUrlStatus(copied ? "URLを取得し、クリップボードにコピーしました" : "URLを取得しました（自動コピーには失敗したため、手動でコピーしてください）", "success");
+    } catch (err) {
+      console.error(err);
+      setUrlStatus(err && err.message ? err.message : "画像URLの取得に失敗しました。", "error");
+    } finally {
+      getUrlBtn.disabled = images.length === 0;
+    }
   }
 
   dropzone.addEventListener("click", () => fileInput.click());
@@ -589,6 +809,26 @@
   wmOpacitySlider.addEventListener("input", () => {
     wmOpacityVal.textContent = wmOpacitySlider.value + "%";
     render();
+  });
+
+  getUrlBtn.addEventListener("click", handleGetUrl);
+  urlKeySaveBtn.addEventListener("click", () => {
+    const key = urlKeyInput.value.trim();
+    if (!key) {
+      urlKeyInput.focus();
+      return;
+    }
+    saveApiKey(key);
+    urlKeyPanel.classList.remove("visible");
+    urlKeyInput.value = "";
+    handleGetUrl();
+  });
+  urlKeyInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") urlKeySaveBtn.click();
+  });
+  urlCopyBtn.addEventListener("click", async () => {
+    const copied = await copyToClipboard(urlResultInput.value);
+    setUrlStatus(copied ? "コピーしました" : "コピーに失敗しました。手動で選択してコピーしてください。", copied ? "success" : "error");
   });
 
   render();
