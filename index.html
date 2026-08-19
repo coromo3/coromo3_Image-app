@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>トレカ画像結合ツール</title>
+<style>
+  :root {
+    --border: #d0d5dd;
+    --text: #1f2430;
+    --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN",
+      "Hiragino Sans", "Yu Gothic", "Noto Sans JP", "Segoe UI", Meiryo, sans-serif;
+    background: #f7f8fa;
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px 64px;
+  }
+  h1 {
+    font-size: 20px;
+    margin: 0 0 20px;
+  }
+  #dropzone {
+    width: 100%;
+    max-width: 640px;
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 56px 24px;
+    text-align: center;
+    background: #fff;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  #dropzone.dragover {
+    background: #eef1f5;
+    border-color: #1f2430;
+  }
+  #dropzone p.main {
+    margin: 0 0 6px;
+    font-size: 16px;
+    color: var(--text);
+  }
+  #dropzone p.sub {
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  input[type="file"] { display: none; }
+
+  #status {
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  #previewSection {
+    width: 100%;
+    max-width: 640px;
+    margin-top: 24px;
+    display: none;
+  }
+  #previewSection.visible { display: block; }
+
+  #previewHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .linkBtn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    text-decoration: underline;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 0;
+  }
+  .linkBtn:hover { color: var(--text); }
+
+  #canvasWrap {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px;
+  }
+  #canvas {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 4px;
+  }
+
+  #watermarkSection {
+    width: 100%;
+    max-width: 640px;
+    margin-top: 20px;
+  }
+  #wmDropzone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+    background: #fff;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--muted);
+    transition: background 0.15s, border-color 0.15s;
+  }
+  #wmDropzone.dragover {
+    background: #eef1f5;
+    border-color: #1f2430;
+  }
+  #wmDropzone.has-watermark {
+    color: var(--text);
+  }
+
+  #wmControls {
+    margin-top: 12px;
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  #wmControls.visible { display: flex; }
+  .sliderRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .sliderRow label {
+    width: 56px;
+    flex-shrink: 0;
+  }
+  .sliderRow input[type="range"] {
+    flex: 1;
+  }
+  .sliderRow .sliderVal {
+    width: 40px;
+    text-align: right;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  #controls {
+    margin-top: 16px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  select#formatSelect {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 9px 10px;
+    font-size: 14px;
+    background: #fff;
+    color: var(--text);
+  }
+  button#saveBtn {
+    background: #1f2430;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 20px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button#saveBtn:hover { background: #343b4b; }
+  button#saveBtn:disabled {
+    background: #a9adb6;
+    cursor: not-allowed;
+  }
+</style>
+</head>
+<body>
+
+<h1>トレカ画像結合ツール</h1>
+
+<div id="dropzone">
+  <p class="main">画像をここにドラッグ＆ドロップ</p>
+  <p class="sub">またはクリックしてファイルを選択（複数選択可）</p>
+  <input type="file" id="fileInput" accept="image/*" multiple>
+</div>
+
+<div id="status"></div>
+
+<div id="previewSection">
+  <div id="previewHeader">
+    <span id="imageCount"></span>
+    <button id="clearBtn" class="linkBtn">クリア</button>
+  </div>
+  <div id="canvasWrap">
+    <canvas id="canvas" width="1600" height="1600"></canvas>
+  </div>
+
+  <div id="watermarkSection">
+    <div id="wmDropzone">
+      <span id="wmDropzoneText">ウォーターマークをここにドラッグ＆ドロップ（任意・PNG推奨）</span>
+      <input type="file" id="wmFileInput" accept="image/*">
+    </div>
+    <div id="wmControls">
+      <div class="sliderRow">
+        <label for="wmSizeSlider">サイズ</label>
+        <input type="range" id="wmSizeSlider" min="5" max="30" step="1" value="12">
+        <span class="sliderVal" id="wmSizeVal">12%</span>
+      </div>
+      <div class="sliderRow">
+        <label for="wmOpacitySlider">透明度</label>
+        <input type="range" id="wmOpacitySlider" min="0" max="100" step="1" value="80">
+        <span class="sliderVal" id="wmOpacityVal">80%</span>
+      </div>
+      <div>
+        <button id="wmClearBtn" class="linkBtn">ウォーターマークを削除</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="controls">
+    <select id="formatSelect">
+      <option value="png">PNG</option>
+      <option value="jpeg">JPEG</option>
+    </select>
+    <button id="saveBtn">画像を保存</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  const CANVAS_SIZE = 1600;
+  const GAP = 2;
+  const WM_MARGIN = 24; // px from right/bottom edge, within the 20-30px target
+
+  /* ---------------------------------------------------------------------
+   * Balanced, non-cropping justified layout.
+   *
+   * All cards in the final image share one common row height. For a
+   * candidate split of the images (in input order) into R contiguous rows,
+   * that shared height is the largest value that satisfies two hard
+   * constraints simultaneously:
+   *   - no row's natural width (sum of each image's own aspect * height,
+   *     plus gaps) exceeds the canvas width -> nothing is ever cropped
+   *   - the stack of R rows (plus row gaps) does not exceed the canvas
+   *     height -> nothing is ever cropped vertically either
+   *
+   * A DP finds, for each R, the contiguous partition into R rows that
+   * maximizes the width-side bound (this is what lets the algorithm
+   * effectively compare arrangements like 3/4/3 vs 4/3/3 vs 5/5 for the
+   * same image set). Trying every R from 1 up to a generous cap covers
+   * the "compare multiple row-count candidates" requirement.
+   *
+   * Because every row shares the exact same height, each row is then
+   * simply centered horizontally, and the whole stack of rows is centered
+   * vertically. That gives an exact horizontal center of mass and a
+   * vertical center of mass that stays close to the canvas center, with no
+   * row ever needing to be pinned to one side.
+   *
+   * Two numbers cap the shared height for a given R: the width bound (the
+   * tightest row's own width limit) and the height cap (R rows stacked
+   * must fit in the canvas height). Whichever is smaller wins and sets the
+   * actual card size; picking the R that simply maximizes that value tends
+   * to dump all the leftover space onto whichever axis lost, e.g. a big
+   * blank band top and bottom while rows nearly touch the left/right
+   * edges. Candidates are scored on both the resulting card size AND how
+   * close those two bounds are to each other, so a slightly smaller but
+   * more evenly-balanced layout is preferred over a marginally bigger one
+   * that stacks all its whitespace onto a single axis.
+   * ------------------------------------------------------------------- */
+
+  function computeBalancedLayout(aspects, canvasSize, gap) {
+    const n = aspects.length;
+    if (n === 0) return null;
+
+    const prefix = new Array(n + 1).fill(0);
+    for (let i = 0; i < n; i++) prefix[i + 1] = prefix[i] + aspects[i];
+    const boundOf = (j, i) => {
+      const count = i - j;
+      const availWidth = canvasSize - (count - 1) * gap;
+      const aspectSum = prefix[i] - prefix[j];
+      return availWidth / aspectSum;
+    };
+
+    const maxRows = Math.min(n, 15);
+    let best = null;
+
+    for (let R = 1; R <= maxRows; R++) {
+      const heightCap = (canvasSize - (R - 1) * gap) / R;
+      if (heightCap <= 0) continue;
+
+      // DP: maximize the minimum per-row width bound across R contiguous groups.
+      const NEG_INF = -Infinity;
+      const dp = Array.from({ length: R + 1 }, () => new Array(n + 1).fill(NEG_INF));
+      const parent = Array.from({ length: R + 1 }, () => new Array(n + 1).fill(-1));
+      dp[0][0] = Infinity;
+
+      for (let r = 1; r <= R; r++) {
+        for (let i = r; i <= n; i++) {
+          for (let j = r - 1; j < i; j++) {
+            if (dp[r - 1][j] === NEG_INF) continue;
+            const b = boundOf(j, i);
+            const val = Math.min(dp[r - 1][j], b);
+            if (val > dp[r][i]) {
+              dp[r][i] = val;
+              parent[r][i] = j;
+            }
+          }
+        }
+      }
+
+      const widthBound = dp[R][n];
+      if (widthBound === NEG_INF) continue;
+
+      const hFinal = Math.min(widthBound, heightCap);
+      if (hFinal <= 0) continue;
+
+      // Lower is better: penalize the gap between the two axis bounds
+      // (imbalance) more than it rewards raw card size.
+      const imbalance = Math.abs(widthBound - heightCap) / Math.max(widthBound, heightCap);
+      const sizeScore = hFinal / canvasSize;
+      const cost = imbalance - 0.6 * sizeScore;
+
+      if (!best || cost < best.cost) {
+        const groups = [];
+        let i = n;
+        for (let r = R; r >= 1; r--) {
+          const j = parent[r][i];
+          const group = [];
+          for (let k = j; k < i; k++) group.push(k);
+          groups.unshift(group);
+          i = j;
+        }
+        best = { R, groups, hFinal, cost };
+      }
+    }
+
+    if (!best) {
+      // Fallback: every image gets its own row (should only trigger for
+      // pathological inputs, e.g. an enormous number of images).
+      const groups = aspects.map((_, i) => [i]);
+      const R = groups.length;
+      const heightCap = (canvasSize - (R - 1) * gap) / R;
+      const widthBound = Math.min(...groups.map((g) => boundOf(g[0], g[0] + 1)));
+      best = { R, groups, hFinal: Math.max(1, Math.min(widthBound, heightCap)) };
+    }
+
+    const h = best.hFinal;
+    const rows = best.groups.map((g) => {
+      const aspectSum = g.reduce((s, i) => s + aspects[i], 0);
+      const width = aspectSum * h + (g.length - 1) * gap;
+      return { imageIndices: g, height: h, width };
+    });
+
+    const totalBlockHeight = best.R * h + (best.R - 1) * gap;
+    const yOffset = (canvasSize - totalBlockHeight) / 2;
+
+    return { rows, rowHeight: h, totalBlockHeight, yOffset };
+  }
+
+  /* ------------------------------------------------------------------- */
+
+  const dropzone = document.getElementById("dropzone");
+  const fileInput = document.getElementById("fileInput");
+  const statusEl = document.getElementById("status");
+  const previewSection = document.getElementById("previewSection");
+  const imageCountEl = document.getElementById("imageCount");
+  const clearBtn = document.getElementById("clearBtn");
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+  const formatSelect = document.getElementById("formatSelect");
+  const saveBtn = document.getElementById("saveBtn");
+
+  const wmDropzone = document.getElementById("wmDropzone");
+  const wmDropzoneText = document.getElementById("wmDropzoneText");
+  const wmFileInput = document.getElementById("wmFileInput");
+  const wmControls = document.getElementById("wmControls");
+  const wmSizeSlider = document.getElementById("wmSizeSlider");
+  const wmSizeVal = document.getElementById("wmSizeVal");
+  const wmOpacitySlider = document.getElementById("wmOpacitySlider");
+  const wmOpacityVal = document.getElementById("wmOpacityVal");
+  const wmClearBtn = document.getElementById("wmClearBtn");
+
+  /** @type {{id:string, url:string, img:HTMLImageElement, aspect:number}[]} */
+  let images = [];
+  /** @type {{url:string, img:HTMLImageElement, aspect:number}|null} */
+  let watermark = null;
+
+  function loadImage(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        resolve({
+          id: file.name + "-" + file.size + "-" + Math.random().toString(36).slice(2),
+          url,
+          img,
+          aspect: img.naturalWidth / img.naturalHeight,
+        });
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("画像の読み込みに失敗しました: " + file.name));
+      };
+      img.src = url;
+    });
+  }
+
+  async function addFiles(fileList) {
+    const files = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
+    if (files.length === 0) return;
+    statusEl.textContent = "読み込み中…";
+    try {
+      const loaded = await Promise.all(files.map(loadImage));
+      images = images.concat(loaded);
+      statusEl.textContent = "";
+      render();
+    } catch (err) {
+      console.error(err);
+      statusEl.textContent = "";
+      alert(err && err.message ? err.message : "画像の読み込みに失敗しました");
+    }
+  }
+
+  function clearAll() {
+    images.forEach((item) => URL.revokeObjectURL(item.url));
+    images = [];
+    render();
+  }
+
+  async function addWatermark(fileList) {
+    const file = Array.from(fileList).find((f) => f.type.startsWith("image/"));
+    if (!file) return;
+    try {
+      const loaded = await loadImage(file);
+      if (watermark) URL.revokeObjectURL(watermark.url);
+      watermark = { url: loaded.url, img: loaded.img, aspect: loaded.aspect };
+      wmDropzoneText.textContent = "ウォーターマーク: " + file.name + "（クリックで変更）";
+      wmDropzone.classList.add("has-watermark");
+      wmControls.classList.add("visible");
+      render();
+    } catch (err) {
+      console.error(err);
+      alert(err && err.message ? err.message : "ウォーターマーク画像の読み込みに失敗しました");
+    }
+  }
+
+  function clearWatermark() {
+    if (watermark) URL.revokeObjectURL(watermark.url);
+    watermark = null;
+    wmDropzoneText.textContent = "ウォーターマークをここにドラッグ＆ドロップ（任意・PNG推奨）";
+    wmDropzone.classList.remove("has-watermark");
+    wmControls.classList.remove("visible");
+    render();
+  }
+
+  function drawWatermark() {
+    if (!watermark) return;
+    const scale = Number(wmSizeSlider.value) / 100;
+    const opacity = Number(wmOpacitySlider.value) / 100;
+
+    const wmWidth = CANVAS_SIZE * scale;
+    const wmHeight = wmWidth / watermark.aspect;
+    const x = CANVAS_SIZE - WM_MARGIN - wmWidth;
+    const y = CANVAS_SIZE - WM_MARGIN - wmHeight;
+
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    ctx.drawImage(watermark.img, 0, 0, watermark.img.naturalWidth, watermark.img.naturalHeight, x, y, wmWidth, wmHeight);
+    ctx.restore();
+  }
+
+  function render() {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+    if (images.length === 0) {
+      previewSection.classList.remove("visible");
+      saveBtn.disabled = true;
+      return;
+    }
+
+    previewSection.classList.add("visible");
+    saveBtn.disabled = false;
+    imageCountEl.textContent = images.length + " 枚の画像を読み込み済み";
+
+    const aspects = images.map((item) => item.aspect);
+    const layout = computeBalancedLayout(aspects, CANVAS_SIZE, GAP);
+    if (!layout) return;
+
+    let y = layout.yOffset;
+    for (const row of layout.rows) {
+      let x = (CANVAS_SIZE - row.width) / 2;
+      for (const idx of row.imageIndices) {
+        const item = images[idx];
+        const w = item.aspect * row.height;
+        ctx.drawImage(item.img, 0, 0, item.img.naturalWidth, item.img.naturalHeight, x, y, w, row.height);
+        x += w + GAP;
+      }
+      y += row.height + GAP;
+    }
+
+    drawWatermark();
+  }
+
+  function save() {
+    const format = formatSelect.value;
+    const mime = format === "png" ? "image/png" : "image/jpeg";
+    const ext = format === "png" ? "png" : "jpg";
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "card-collage-" + Date.now() + "." + ext;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      },
+      mime,
+      format === "jpeg" ? 0.92 : undefined,
+    );
+  }
+
+  dropzone.addEventListener("click", () => fileInput.click());
+  dropzone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropzone.classList.add("dragover");
+  });
+  dropzone.addEventListener("dragleave", () => {
+    dropzone.classList.remove("dragover");
+  });
+  dropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropzone.classList.remove("dragover");
+    if (e.dataTransfer.files && e.dataTransfer.files.length) {
+      addFiles(e.dataTransfer.files);
+    }
+  });
+  fileInput.addEventListener("change", (e) => {
+    if (e.target.files && e.target.files.length) {
+      addFiles(e.target.files);
+    }
+    e.target.value = "";
+  });
+  clearBtn.addEventListener("click", clearAll);
+  saveBtn.addEventListener("click", save);
+
+  wmDropzone.addEventListener("click", () => wmFileInput.click());
+  wmDropzone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    wmDropzone.classList.add("dragover");
+  });
+  wmDropzone.addEventListener("dragleave", () => {
+    wmDropzone.classList.remove("dragover");
+  });
+  wmDropzone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    wmDropzone.classList.remove("dragover");
+    if (e.dataTransfer.files && e.dataTransfer.files.length) {
+      addWatermark(e.dataTransfer.files);
+    }
+  });
+  wmFileInput.addEventListener("change", (e) => {
+    if (e.target.files && e.target.files.length) {
+      addWatermark(e.target.files);
+    }
+    e.target.value = "";
+  });
+  wmClearBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    clearWatermark();
+  });
+  wmSizeSlider.addEventListener("input", () => {
+    wmSizeVal.textContent = wmSizeSlider.value + "%";
+    render();
+  });
+  wmOpacitySlider.addEventListener("input", () => {
+    wmOpacityVal.textContent = wmOpacitySlider.value + "%";
+    render();
+  });
+
+  render();
+})();
+</script>
+
+</body>
+</html>
