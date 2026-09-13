@@ -268,6 +268,103 @@
   #urlStatus.error { color: #c0392b; }
   #urlStatus.success { color: #1a7f4b; }
   #urlStatus.pending { color: var(--muted); }
+
+  #cropModal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(31, 36, 48, 0.55);
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 16px;
+  }
+  #cropModal.visible { display: flex; }
+  .cropModalBox {
+    background: #fff;
+    border-radius: 12px;
+    padding: 16px;
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 32px);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+  }
+  #cropModalTitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  #cropStage {
+    position: relative;
+    background: #111;
+    touch-action: none;
+    user-select: none;
+    border-radius: 6px;
+  }
+  #cropClip {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: 6px;
+  }
+  #cropStage img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+    max-width: none;
+    pointer-events: none;
+  }
+  #cropShade {
+    position: absolute;
+    box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.45);
+  }
+  #cropBox {
+    position: absolute;
+    border: 2px solid #fff;
+    cursor: move;
+    touch-action: none;
+  }
+  .cropHandle {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    background: #fff;
+    border: 2px solid #1f2430;
+    border-radius: 50%;
+    touch-action: none;
+  }
+  .cropHandle[data-dir="nw"] { top: -8px; left: -8px; cursor: nwse-resize; }
+  .cropHandle[data-dir="ne"] { top: -8px; right: -8px; cursor: nesw-resize; }
+  .cropHandle[data-dir="sw"] { bottom: -8px; left: -8px; cursor: nesw-resize; }
+  .cropHandle[data-dir="se"] { bottom: -8px; right: -8px; cursor: nwse-resize; }
+
+  #cropModalFooter {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  #cropModalActions { display: flex; gap: 8px; }
+  #cropModalActions button {
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--text);
+  }
+  #cropModalActions button:hover { background: #f2f4f7; }
+  #cropApplyBtn {
+    background: #1f2430;
+    color: #fff;
+    border: none;
+  }
+  #cropApplyBtn:hover { background: #343b4b; }
 </style>
 </head>
 <body>
@@ -338,6 +435,32 @@
       <button id="urlCopyBtn">コピー</button>
     </div>
     <div id="urlStatus"></div>
+  </div>
+</div>
+
+<div id="cropModal">
+  <div class="cropModalBox">
+    <div id="cropModalTitle">画像をトリミング</div>
+    <div id="cropStage">
+      <div id="cropClip">
+        <img id="cropImage" draggable="false" alt="">
+        <div id="cropShade"></div>
+      </div>
+      <div id="cropBox">
+        <div class="cropHandle" data-dir="nw"></div>
+        <div class="cropHandle" data-dir="ne"></div>
+        <div class="cropHandle" data-dir="sw"></div>
+        <div class="cropHandle" data-dir="se"></div>
+      </div>
+    </div>
+    <div id="cropModalFooter">
+      <button id="cropSkipAllBtn" class="linkBtn">残りはそのまま追加</button>
+      <div id="cropModalActions">
+        <button id="cropResetBtn">リセット</button>
+        <button id="cropSkipBtn">トリミングしない</button>
+        <button id="cropApplyBtn">適用して追加</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -506,7 +629,18 @@
   const urlCopyBtn = document.getElementById("urlCopyBtn");
   const urlStatus = document.getElementById("urlStatus");
 
-  /** @type {{id:string, url:string, img:HTMLImageElement, aspect:number}[]} */
+  const cropModal = document.getElementById("cropModal");
+  const cropModalTitle = document.getElementById("cropModalTitle");
+  const cropStage = document.getElementById("cropStage");
+  const cropImage = document.getElementById("cropImage");
+  const cropShade = document.getElementById("cropShade");
+  const cropBox = document.getElementById("cropBox");
+  const cropResetBtn = document.getElementById("cropResetBtn");
+  const cropSkipBtn = document.getElementById("cropSkipBtn");
+  const cropSkipAllBtn = document.getElementById("cropSkipAllBtn");
+  const cropApplyBtn = document.getElementById("cropApplyBtn");
+
+  /** @type {{id:string, url:string, img:HTMLImageElement, aspect:number, crop:{sx:number,sy:number,sw:number,sh:number}}[]} */
   let images = [];
   /** @type {{url:string, img:HTMLImageElement, aspect:number}|null} */
   let watermark = null;
@@ -531,20 +665,160 @@
     });
   }
 
+  /* --- 個別画像のトリミング --------------------------------------------- */
+
+  const CROP_MAX_DISPLAY = 480; // css px cap for the crop stage, either axis
+  const CROP_MIN_SIZE = 24; // smallest allowed crop box, in displayed px
+
+  function openCropModal(item, current, total) {
+    return new Promise((resolve) => {
+      cropModalTitle.textContent = "画像をトリミング（" + current + " / " + total + "）";
+      cropModal.classList.add("visible");
+
+      const natW = item.img.naturalWidth;
+      const natH = item.img.naturalHeight;
+      // Cap the stage to whatever actually fits on screen (mobile-width
+      // viewports especially), not just a fixed desktop-sized constant.
+      const maxW = Math.min(CROP_MAX_DISPLAY, window.innerWidth - 64);
+      const maxH = Math.min(CROP_MAX_DISPLAY, window.innerHeight - 220);
+      const scale = Math.min(maxW / natW, maxH / natH, 1);
+      const dispW = natW * scale;
+      const dispH = natH * scale;
+
+      cropImage.src = item.url;
+      cropImage.style.width = dispW + "px";
+      cropImage.style.height = dispH + "px";
+      cropStage.style.width = dispW + "px";
+      cropStage.style.height = dispH + "px";
+
+      let box = { x: 0, y: 0, w: dispW, h: dispH };
+
+      function applyBoxStyle() {
+        cropBox.style.left = box.x + "px";
+        cropBox.style.top = box.y + "px";
+        cropBox.style.width = box.w + "px";
+        cropBox.style.height = box.h + "px";
+        cropShade.style.left = box.x + "px";
+        cropShade.style.top = box.y + "px";
+        cropShade.style.width = box.w + "px";
+        cropShade.style.height = box.h + "px";
+      }
+      applyBoxStyle();
+
+      function clampBox() {
+        box.w = Math.max(CROP_MIN_SIZE, Math.min(box.w, dispW));
+        box.h = Math.max(CROP_MIN_SIZE, Math.min(box.h, dispH));
+        box.x = Math.max(0, Math.min(box.x, dispW - box.w));
+        box.y = Math.max(0, Math.min(box.y, dispH - box.h));
+      }
+
+      let dragMode = null; // "move" | "nw" | "ne" | "sw" | "se"
+      let startPointer = null;
+      let startBox = null;
+
+      function pointerMove(e) {
+        const dx = e.clientX - startPointer.x;
+        const dy = e.clientY - startPointer.y;
+        if (dragMode === "move") {
+          box.x = startBox.x + dx;
+          box.y = startBox.y + dy;
+        } else {
+          if (dragMode.includes("n")) { box.y = startBox.y + dy; box.h = startBox.h - dy; }
+          if (dragMode.includes("s")) { box.h = startBox.h + dy; }
+          if (dragMode.includes("w")) { box.x = startBox.x + dx; box.w = startBox.w - dx; }
+          if (dragMode.includes("e")) { box.w = startBox.w + dx; }
+        }
+        clampBox();
+        applyBoxStyle();
+      }
+      function pointerUp() {
+        dragMode = null;
+        window.removeEventListener("pointermove", pointerMove);
+        window.removeEventListener("pointerup", pointerUp);
+      }
+      function pointerDown(e, mode) {
+        e.preventDefault();
+        dragMode = mode;
+        startPointer = { x: e.clientX, y: e.clientY };
+        startBox = { x: box.x, y: box.y, w: box.w, h: box.h };
+        window.addEventListener("pointermove", pointerMove);
+        window.addEventListener("pointerup", pointerUp);
+      }
+
+      cropBox.onpointerdown = (e) => {
+        if (e.target.classList.contains("cropHandle")) return;
+        pointerDown(e, "move");
+      };
+      cropBox.querySelectorAll(".cropHandle").forEach((h) => {
+        h.onpointerdown = (e) => { e.stopPropagation(); pointerDown(e, h.dataset.dir); };
+      });
+
+      function cleanup() {
+        cropModal.classList.remove("visible");
+        window.removeEventListener("pointermove", pointerMove);
+        window.removeEventListener("pointerup", pointerUp);
+        cropBox.onpointerdown = null;
+        cropBox.querySelectorAll(".cropHandle").forEach((h) => { h.onpointerdown = null; });
+        cropResetBtn.onclick = null;
+        cropSkipBtn.onclick = null;
+        cropSkipAllBtn.onclick = null;
+        cropApplyBtn.onclick = null;
+      }
+
+      cropResetBtn.onclick = () => {
+        box = { x: 0, y: 0, w: dispW, h: dispH };
+        applyBoxStyle();
+      };
+      cropSkipBtn.onclick = () => {
+        cleanup();
+        resolve({ action: "skip" });
+      };
+      cropSkipAllBtn.onclick = () => {
+        cleanup();
+        resolve({ action: "skipAll" });
+      };
+      cropApplyBtn.onclick = () => {
+        const sx = Math.round(box.x / scale);
+        const sy = Math.round(box.y / scale);
+        const sw = Math.round(box.w / scale);
+        const sh = Math.round(box.h / scale);
+        cleanup();
+        resolve({ action: "apply", crop: { sx, sy, sw, sh } });
+      };
+    });
+  }
+
   async function addFiles(fileList) {
     const files = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
     if (files.length === 0) return;
     statusEl.textContent = "読み込み中…";
+    let loaded;
     try {
-      const loaded = await Promise.all(files.map(loadImage));
-      images = images.concat(loaded);
-      statusEl.textContent = "";
-      render();
+      loaded = await Promise.all(files.map(loadImage));
     } catch (err) {
       console.error(err);
       statusEl.textContent = "";
       alert(err && err.message ? err.message : "画像の読み込みに失敗しました");
+      return;
     }
+    statusEl.textContent = "";
+
+    let skipAllCropping = false;
+    for (let i = 0; i < loaded.length; i++) {
+      const item = loaded[i];
+      item.crop = { sx: 0, sy: 0, sw: item.img.naturalWidth, sh: item.img.naturalHeight };
+      if (!skipAllCropping) {
+        const result = await openCropModal(item, i + 1, loaded.length);
+        if (result.action === "skipAll") {
+          skipAllCropping = true;
+        } else if (result.action === "apply") {
+          item.crop = result.crop;
+          item.aspect = result.crop.sw / result.crop.sh;
+        }
+      }
+      images.push(item);
+    }
+    render();
   }
 
   function clearAll() {
@@ -621,7 +895,7 @@
       for (const idx of row.imageIndices) {
         const item = images[idx];
         const w = item.aspect * row.height;
-        ctx.drawImage(item.img, 0, 0, item.img.naturalWidth, item.img.naturalHeight, x, y, w, row.height);
+        ctx.drawImage(item.img, item.crop.sx, item.crop.sy, item.crop.sw, item.crop.sh, x, y, w, row.height);
         x += w + GAP;
       }
       y += row.height + GAP;
